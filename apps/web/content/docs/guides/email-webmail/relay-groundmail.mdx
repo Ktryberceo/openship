@@ -1,0 +1,133 @@
+---
+title: Groundmail
+description: Route your Openship mail server's outbound mail through Groundmail — it leaves over port 587 from established sending IPs, while your mailboxes stay on your server.
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+[Groundmail](https://groundmail.dev/?utm_source=github&utm_medium=docs&utm_campaign=oblien-openship) is a
+transactional email service you can use as an [SMTP relay](/docs/guides/email-webmail/relays). Your Openship
+server keeps your mailboxes and everything it receives; mail sent from your domain is handed to Groundmail on
+port 587 and delivered from there. That helps when your host blocks outbound port 25, or when your server's IP
+is too new for inbox providers to trust.
+
+<Callout title="What you need first">
+- A **Groundmail account**. To send to real recipients it needs a verified domain and a payment method.
+- A **domain name** you control, where you can add DNS records.
+- An **Openship mail server** already set up. If you haven't done that yet, start with
+  [Email & webmail](/docs/guides/email-webmail) — you'll need it running before there's anything to relay.
+</Callout>
+
+## Setup at a glance
+
+<Steps>
+
+<Step>
+
+### Add your domain in Groundmail
+
+In the Groundmail dashboard, open **Domains** and add the same domain your Openship mail server uses. From a
+terminal, that's:
+
+```bash
+npx groundmail-cli domains add example.com
+```
+
+Groundmail shows a short list of DNS records. Add these three at your DNS provider:
+
+| Type | Host | What it's for |
+| --- | --- | --- |
+| TXT | `_groundmail.example.com` | Proves you own the domain |
+| TXT | `<selector>._domainkey.example.com` | DKIM, the signature receiving servers check |
+| CNAME | `rp.example.com` → `rp.groundmail.dev` | Return path, so bounces are handled for you |
+
+Leave the **SPF** record for a later step, because Openship already publishes one and a domain can only have
+one. Your **DMARC** record from the Openship setup is fine as it is.
+
+</Step>
+
+<Step>
+
+### Verify the domain
+
+Back in **Domains**, open your domain and run the verification check, or from a terminal:
+
+```bash
+npx groundmail-cli domains verify example.com
+```
+
+DNS can take a few minutes to spread, so try again shortly if it isn't verified on the first go.
+
+</Step>
+
+<Step>
+
+### Create an SMTP credential
+
+In the Groundmail dashboard, open **SMTP** and choose **Create SMTP credential**. The password is shown
+exactly once, so copy it somewhere safe the moment it appears.
+
+</Step>
+
+<Step>
+
+### Point Openship's relay at Groundmail
+
+In Openship, go to **Emails → Sending**. Under **Outbound path**, pick **Custom SMTP**. Then:
+
+- **Which senders relay?** — choose **Selected senders** and add your domain. (See the first gotcha below for
+  why this beats **All senders**.)
+- **Provider and credentials** — choose **Custom** and fill in:
+  - **SMTP host** — `smtp.groundmail.dev`
+  - **Port** — `587`
+  - **SMTP username** — `groundmail`
+  - **SMTP password** — the credential you just created
+  - **SPF include** — `include:spf.groundmail.dev`
+
+Press **Save changes**.
+
+</Step>
+
+<Step>
+
+### Update your SPF record
+
+Open the **DNS** tab. Because you filled in the SPF include, Openship now shows the SPF record your domain
+needs, with Groundmail added to the one it already had:
+
+```txt
+v=spf1 mx ip4:<your server IP> include:spf.groundmail.dev -all
+```
+
+Replace your existing SPF record with that value (don't add a second one), then press **Verify**.
+
+</Step>
+
+<Step>
+
+### Send a test
+
+Back on **Emails → Sending**, use **Send test email**. The message should arrive with SPF, DKIM and DMARC all
+passing, and it appears in the Groundmail dashboard under **Emails** with its delivery status.
+
+</Step>
+
+</Steps>
+
+<img src="/docs/relay-groundmail-form.png" alt="Openship Emails -> Sending with the outbound relay set to Groundmail (provider Custom, smtp.groundmail.dev, port 587, selected senders)" width="720" />
+
+## Gotchas / good to know
+
+- **Relay your own domains, not "All senders".** Groundmail only accepts mail whose sender is on a domain
+  you've verified. Mail your server forwards for an alias keeps its original outside sender, so with **All
+  senders** those forwards are refused with `554 MAIL FROM domain … is not verified on this team`. With
+  **Selected senders**, mail from your domain goes through Groundmail and forwards keep delivering directly.
+- **Every sending domain needs verifying in Groundmail.** If you add a second domain to your mail server, add
+  and verify it in Groundmail too, and add it under **Selected senders**. Until then its mail is refused with
+  the same `554`.
+- **One SPF record per domain.** Two SPF records make both invalid. Merge Groundmail's include into the record
+  Openship gave you, as shown above.
+- **The SMTP password only appears once.** If you lose it, create a new credential and paste that one into
+  Openship.
+- **Port 587 blocked too?** Use port `2525`. It's the same server with the same login, for hosts that block
+  587. More in the [Groundmail SMTP docs](https://docs.groundmail.dev/smtp?utm_source=github&utm_medium=docs&utm_campaign=oblien-openship).

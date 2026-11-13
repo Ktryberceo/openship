@@ -1,4 +1,4 @@
 {
   "title": "Email & webmail",
-  "pages": ["index", "relays", "relay-oci"]
+  "pages": ["index", "relays", "relay-oci", "relay-groundmail"]
 }
